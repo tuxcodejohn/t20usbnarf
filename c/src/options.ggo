@@ -1,0 +1,23 @@
+#package "usbnarf"
+#version "0.1"
+
+purpose "This is the usb driver prototyper which is able to generate packages 
+that will be sent to a particular device on the system indentyfied by given 
+vendor and poduct id"
+
+args "-C -a usbnarf_conf -f parser"
+
+option "bytes" b "the maximal number of bytes read from the source" int optional default="512"
+
+option "device" d "the desrcription of the device in the form of XXXX:YYYY where XXXX is vendor and YYYY product id" string optional default="1234:4321"
+
+option "infile" i "input file name (or - fro stdin)" string optional default="-"
+
+option "seek" s "the offset of the first byte in input file" int optional default="0"
+
+option "verbose" v "turn on most debug output" string optional
+ 
+
+
+
+
