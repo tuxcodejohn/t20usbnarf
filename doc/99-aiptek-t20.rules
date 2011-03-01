@@ -1,4 +1,3 @@
-#JTAGICE mkII:
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb", ATTRS{idVendor}=="08ca",
 ATTRS{idProduct}=="2137", MODE:="0666" , GROUP:="plugdev"
 
