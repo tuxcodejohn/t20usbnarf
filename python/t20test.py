@@ -60,11 +60,19 @@ start = [0x11, 0x00, 0x00, 0x00, 0x00, 0x80, 0x02, 0xe0, 0x01, 0x80, 0x02, 0xe0,
 
 raw.write(pack(start))
 
-import random
-r = random.Random()
+base = ''.join(chr(i) for i in (0xFF, 0x00, 0x00) * (512/3+1))[:512]
+
+chunks = [
+        base,
+        base[1:] + base[:1],
+        base[2:] + base[:2],
+        ]
 
 for i in range(1800):
-    raw.write(''.join(chr(0xff if i%3 else 0x00) for i in range(512)))
+    raw.write(chunks[i%3])
+
+#for i in range(1800):
+    #raw.write(''.join(chr(0xff if i%3 else 0x00) for i in range(512)))
 
 batch(post)
 
