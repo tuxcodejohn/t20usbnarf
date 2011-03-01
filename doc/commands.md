@@ -1,5 +1,21 @@
 # Speculation on the commands
 
+## Endpoints
+
+### 1
+
+* input
+
+### 2
+
+* output
+* raw data
+* pixel data
+
+### 3
+
+* commands
+
 ## Speculation on the structure
 
 ### Bits 0-6
