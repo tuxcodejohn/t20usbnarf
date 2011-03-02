@@ -29,7 +29,7 @@ def run(lines):
         print ', '.join(hex(i) for i in line[8*3:])
         cmd.write(pack(line[8*3:]))
 
-def batch(lines):
+def batch(lines, wait=False):
     for line in lines:
         print ', '.join(hex(i) for i in line)
 
@@ -39,6 +39,9 @@ def batch(lines):
             print "read:", hex(inp.read(1)[0])
         elif line[0] == 0x25:
             print "read: ", inp.read(512)
+
+        if wait:
+            raw_input()
 
 batch(phase0)
 
