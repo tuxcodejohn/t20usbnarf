@@ -6,6 +6,16 @@ from initdata import *
 def pack(raw):
     return ''.join(chr(i) for i in raw)
 
+def full_write(ep, data):
+    size = len(data)
+    cur = 0
+
+    while cur < size:
+        delta = ep.write(data[cur:])
+        cur += delta
+        print "%i sent, %i remaining" % (delta, cur)
+
+
 # find our device
 dev = usb.core.find(idVendor=0x08ca, idProduct=0x2137)
 
@@ -55,7 +65,7 @@ raw.write(pack(nullcmd))
 
 # TODO: check whether this is the right amount!
 for i in range(75):
-    raw.write(''.join(chr(0) for i in range(512)))
+    raw.write('\x00' * 512)
 
 batch(phase1)
 
@@ -65,16 +75,9 @@ start = [0x11, 0x00, 0x00, 0x00, 0x00, 0x80, 0x02, 0xe0, 0x01, 0x80, 0x02, 0xe0,
 
 raw.write(pack(start))
 
-base = ''.join(chr(i) for i in (0xFF, 0x00, 0x00) * (512/3+1))[:512]
+data = '\xff\xff\xff' * (640*480)
 
-chunks = [
-        base,
-        base[2:] + base[:2],
-        base[1:] + base[:1],
-        ]
-
-for i in range(1800):
-    raw.write(chunks[i%3])
+full_write(raw, data)
 
 #for i in range(1800):
     #raw.write(''.join(chr(0xff if i%3 else 0x00) for i in range(512)))
