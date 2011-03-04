@@ -20,6 +20,8 @@ dev.set_configuration()
 
 interface = dev[0][(0,0)]
 
+interface.set_altsetting()
+
 inp = interface[0]
 raw = interface[1]
 cmd = interface[2]
@@ -67,8 +69,8 @@ base = ''.join(chr(i) for i in (0xFF, 0x00, 0x00) * (512/3+1))[:512]
 
 chunks = [
         base,
-        base[1:] + base[:1],
         base[2:] + base[:2],
+        base[1:] + base[:1],
         ]
 
 for i in range(1800):
@@ -77,5 +79,5 @@ for i in range(1800):
 #for i in range(1800):
     #raw.write(''.join(chr(0xff if i%3 else 0x00) for i in range(512)))
 
-batch(post)
+# batch(post)
 
