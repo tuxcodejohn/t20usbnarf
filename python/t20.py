@@ -15,13 +15,16 @@ def full_write(ep, data):
     while cur < size:
         delta = ep.write(data[cur:])
         cur += delta
-        print "%i sent, %i remaining" % (delta, cur - size)
+        #print "%i sent, %i remaining" % (delta, cur - size)
 
 class Beamer:
+    '''Class representing an USB beamer'''
 
     resolution = (640, 480)
 
     def __init__(self):
+        '''Find a beamer. No device initialization, yet (see send_init())'''
+
         # find our device
         self.dev = dev = usb.core.find(idVendor=0x08ca, idProduct=0x2137)
 
@@ -31,14 +34,18 @@ class Beamer:
 
         dev.set_configuration()
 
+        # there is only one configuration and one interface
         self.interface = interface = dev[0][(0,0)]
         interface.set_altsetting()
 
+        # save endpoints
         self.inp = interface[0]
         self.raw = interface[1]
         self.cmd = interface[2]
 
     def cmd_batch(self, lines, wait=False):
+        '''Process a voodoo batch and its input'''
+
         cmd = self.cmd
         inp = self.inp
 
@@ -56,6 +63,9 @@ class Beamer:
                 raw_input()
 
     def send_init(self):
+        '''Send the init voodoo'''
+
+        # TODO: this is pure voodoo ... research!
         raw = self.raw
 
         self.cmd_batch(phase0)
@@ -75,6 +85,8 @@ class Beamer:
         self.cmd_batch(phase1)
 
     def send_raw_frame(self, raw_data):
+        '''Send 640x480 Pixel RGB data'''
+
         raw = self.raw
 
         start = [
@@ -87,7 +99,9 @@ class Beamer:
 
         full_write(raw, raw_data)
 
+# TODO: move away to loose PIL dependency in the core
 class ImageBeamer(Beamer):
+    '''Beamer with ability to send PIL images'''
 
     def send_image(self, im):
         if im.size != self.resolution:
@@ -96,6 +110,7 @@ class ImageBeamer(Beamer):
         raw = StringIO.StringIO()
 
         for pixel in im.getdata():
+            # we need GBR
             for color in reversed(pixel):
                 raw.write(chr(color))
 
