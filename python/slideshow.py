@@ -95,31 +95,25 @@ else:
 target_res = beamer.resolution
 beamer.send_init()
 
-def choose_file(retries=3):
-    try:
-        return Image.open(choice.choice())
-    except:
-        if retries:
-            return choose_file(retries - 1)
-        else:
-            raise
-
 while True:
-    orig = choose_file()
+    try:
+        orig = Image.open(choice.choice())
 
-    scale = min(float(target) / old for old, target in zip(orig.size, target_res))
-    new_size = tuple(int(old * scale) for old in orig.size)
+        scale = min(float(target) / old for old, target in zip(orig.size, target_res))
+        new_size = tuple(int(old * scale) for old in orig.size)
 
-    scaled = orig.resize(new_size, Image.ANTIALIAS)
+        scaled = orig.resize(new_size, Image.ANTIALIAS)
 
-    top = tuple((target - new) / 2 for new, target in zip(new_size, target_res))
+        top = tuple((target - new) / 2 for new, target in zip(new_size, target_res))
 
-    im = Image.new(mode="RGB", size=target_res)
-    im.paste(scaled, top)
+        im = Image.new(mode="RGB", size=target_res)
+        im.paste(scaled, top)
 
-    print "sending new image ..."
-    beamer.send_image(im)
-    print "new image uploaded"
+        print "sending new image ..."
+        beamer.send_image(im)
+        print "new image uploaded"
 
-    time.sleep(WAIT_INTERVAL)
+        time.sleep(WAIT_INTERVAL)
+    except Exception as e:
+        print e
 
