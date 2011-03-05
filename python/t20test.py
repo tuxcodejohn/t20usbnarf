@@ -1,5 +1,9 @@
+import sys
+
 import usb.core
 import usb.util
+
+import Image, ImageDraw
 
 from initdata import *
 
@@ -14,7 +18,6 @@ def full_write(ep, data):
         delta = ep.write(data[cur:])
         cur += delta
         print "%i sent, %i remaining" % (delta, cur)
-
 
 # find our device
 dev = usb.core.find(idVendor=0x08ca, idProduct=0x2137)
@@ -75,12 +78,13 @@ start = [0x11, 0x00, 0x00, 0x00, 0x00, 0x80, 0x02, 0xe0, 0x01, 0x80, 0x02, 0xe0,
 
 raw.write(pack(start))
 
-data = '\xff\xff\xff' * (640*480)
+#im = Image.open(sys.argv[1])
+im = Image.new(mode="RGB", size=(640,480))
+
+draw = ImageDraw.Draw(im)
+draw.text((5, 5), "hello world!")
+
+data = im.tostring()
 
 full_write(raw, data)
-
-#for i in range(1800):
-    #raw.write(''.join(chr(0xff if i%3 else 0x00) for i in range(512)))
-
-# batch(post)
 
