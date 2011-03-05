@@ -24,32 +24,19 @@ def read_list(path):
                 yield sub
         elif os.path.splitext(rel)[1].lower() in file_extensions:
             yield abs_path
-
-class FsChoice:
-
-    def __init__(self):
-        self.files = []
-        self.random = random.Random()
-
-    def choice(self):
-        self.random.choice(self.files)
-
 class DirChoice:
 
     def __init__(self, paths):
-        FsChoice.__init__(self)
-
-        files = self.files
+        self.random = random.Random()
+        self.files = files = []
         
         for path in paths:
-            files.extend(read_list(path))
-
-class FileChoice:
-
-    def __init__(self, paths):
-        FsChoice.__init__(self)
-
-        self.files = paths
+            if os.path.isfile(path):
+                files.append(path)
+            elif os.path.isdir(path):
+                files.extend(read_list(path))
+            else:
+                print "File '%s' not found!" % path
 
 class FeedChoice:
 
@@ -89,10 +76,20 @@ class FeedChoice:
 
 # finding the beamer
 beamer = ImageBeamer()
-        orig = Image.open(choice.choice())
 
-# fetching the feeds
-choice = FeedChoice(sys.argv[1:])
+if len(sys.argv) < 2:
+    print "Please pass at least one destination"
+    sys.exit(1)
+
+# the first argument determines the type of all arguments!
+first = sys.argv[1]
+args = sys.argv[1:]
+if first.startswith("http://"):
+    print "Interpreting everything as feed!"
+    choice = FeedChoice(args)
+else:
+    print "Interpreting everything as files!"
+    choice = FileChoice(args)
 
 # initializing the beamer
 target_res = beamer.resolution
@@ -113,7 +110,7 @@ while True:
 
     print "sending new image ..."
     beamer.send_image(im)
-    print "new uploaded"
+    print "new image uploaded"
 
     time.sleep(WAIT_INTERVAL)
 
