@@ -17,7 +17,7 @@ def full_write(ep, data):
     while cur < size:
         delta = ep.write(data[cur:])
         cur += delta
-        print "%i sent, %i remaining" % (delta, cur)
+        print "%i sent, %i remaining" % (delta, cur - size)
 
 # find our device
 dev = usb.core.find(idVendor=0x08ca, idProduct=0x2137)
