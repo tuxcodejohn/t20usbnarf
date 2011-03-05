@@ -78,13 +78,20 @@ start = [0x11, 0x00, 0x00, 0x00, 0x00, 0x80, 0x02, 0xe0, 0x01, 0x80, 0x02, 0xe0,
 
 raw.write(pack(start))
 
-#im = Image.open(sys.argv[1])
-im = Image.new(mode="RGB", size=(640,480))
+def image_pixel(image):
+    for pixel in image.getdata():
+        for color in reversed(pixel):
+            yield color
 
-draw = ImageDraw.Draw(im)
-draw.text((5, 5), "hello world!")
+if len(sys.argv) > 1:
+    im = Image.open(sys.argv[1]).resize((640,480))
+else:
+    im = Image.new(mode="RGB", size=(640,480))
 
-data = im.tostring()
+    draw = ImageDraw.Draw(im)
+    draw.text((5, 5), "hello world!")
+
+data = ''.join(chr(i) for i in image_pixel(im))
 
 full_write(raw, data)
 
