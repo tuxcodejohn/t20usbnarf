@@ -95,8 +95,17 @@ else:
 target_res = beamer.resolution
 beamer.send_init()
 
+def choose_file(retries=3):
+    try:
+        return Image.open(choice.choice())
+    except:
+        if retries:
+            return choose_file(retries - 1)
+        else:
+            raise
+
 while True:
-    orig = Image.open(choice.choice())
+    orig = choose_file()
 
     scale = min(float(target) / old for old, target in zip(orig.size, target_res))
     new_size = tuple(int(old * scale) for old in orig.size)
