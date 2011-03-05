@@ -2,27 +2,19 @@ import sys
 import random
 import time
 import os.path
+import urllib
+import StringIO
 
-import usb.core
-import usb.util
+import feedparser
 
 import Image, ImageDraw
 
-from initdata import *
+from t20 import ImageBeamer
 
-file_extensions = ['.jpg', '.jpeg', '.png']
+FETCH_INTERVAL = 15 * 60
+WAIT_INTERVAL = 15
 
-def pack(raw):
-    return ''.join(chr(i) for i in raw)
-
-def full_write(ep, data):
-    size = len(data)
-    cur = 0
-
-    while cur < size:
-        delta = ep.write(data[cur:])
-        cur += delta
-        print "%i sent, %i remaining" % (delta, cur - size)
+file_extensions = ['.jpg', '.jpeg', '.png', '.gif']
 
 def read_list(path):
     for rel in sorted(os.listdir(path), key=str.lower):
@@ -33,92 +25,81 @@ def read_list(path):
         elif os.path.splitext(rel)[1].lower() in file_extensions:
             yield abs_path
 
-# find our device
-dev = usb.core.find(idVendor=0x08ca, idProduct=0x2137)
+class FsChoice:
 
-# was it found?
-if dev is None:
-    raise ValueError('Device not found')
+    def __init__(self):
+        self.files = []
+        self.random = random.Random()
 
-if len(sys.argv) > 1:
-    files = []
-    for directory in sys.argv[1:]:
-        files.extend(read_list(directory))
-else:
-    files = list(read_list('.'))
+    def choice(self):
+        self.random.choice(self.files)
 
-# set the active configuration. With no arguments, the first
-# configuration will be the active one
-dev.set_configuration()
+class DirChoice:
 
+    def __init__(self, paths):
+        FsChoice.__init__(self)
 
-interface = dev[0][(0,0)]
+        files = self.files
+        
+        for path in paths:
+            files.extend(read_list(path))
 
-interface.set_altsetting()
+class FileChoice:
 
-inp = interface[0]
-raw = interface[1]
-cmd = interface[2]
+    def __init__(self, paths):
+        FsChoice.__init__(self)
 
-def run(lines):
-    for line in lines:
-        print ', '.join(hex(i) for i in line[8*3:])
-        cmd.write(pack(line[8*3:]))
+        self.files = paths
 
-def batch(lines, wait=False):
-    for line in lines:
-        print ', '.join(hex(i) for i in line)
+class FeedChoice:
 
-        cmd.write(pack(line))
+    def __init__(self, urls):
+        self.urls = urls
+        self.hrefs = []
+        self.random = random.Random()
+        self.last_fetch = 0
 
-        if line[0] == 0x05:
-            print "read:", hex(inp.read(1)[0])
-        elif line[0] == 0x25:
-            print "read: ", inp.read(512)
+        self.fetch()
 
-        if wait:
-            raw_input()
+    def fetch(self):
+        self.hrefs = hrefs = []
+        urls = self.urls
 
-batch(phase0)
+        print "fetching ..."
 
-print "writing null bytes"
+        for url in urls:
+            feed = feedparser.parse(url)
 
-nullcmd = [
-        0x11, 0x00, 0x00, 0x00, 0x00, 0xa0, 0x00, 0x78,
-        0x00, 0x80, 0x02, 0xe0, 0x01, 0x00, 0x10, 0x00,
-        0x10, 0x04, 0x00, 0x96, 0x00,
-        ]
+            for entry in feed.entries:
+                if 'enclosures' in entry:
+                    for enclosure in entry.enclosures:
+                        if enclosure.type.startswith('image'):
+                            hrefs.append(enclosure.href)
 
-raw.write(pack(nullcmd))
+        self.last_fetch = time.time()
 
-# TODO: check whether this is the right amount!
-for i in range(75):
-    raw.write('\x00' * 512)
+    def choice(self):
+        if self.last_fetch + FETCH_INTERVAL < time.time():
+            self.fetch()
 
-batch(phase1)
+        url = self.random.choice(self.hrefs)
+        print "loading image .."
+        data = urllib.urlopen(url).read()
+        return StringIO.StringIO(data)
 
-# non-working drawing
+# finding the beamer
+beamer = ImageBeamer()
+        orig = Image.open(choice.choice())
 
-start = [
-        0x11, 0x00, 0x00, 0x00, 0x00, 0x80, 0x02, 0xe0,
-        0x01, 0x80, 0x02, 0xe0, 0x01, 0x00, 0x40, 0x00,
-        0x40, 0x00, 0x00, 0x10, 0x0e,
-        ]
+# fetching the feeds
+choice = FeedChoice(sys.argv[1:])
 
-
-def image_pixel(image):
-    for pixel in image.getdata():
-        for color in reversed(pixel):
-            yield color
-
-target_res = (640, 480)
-
-rand = random.Random()
+# initializing the beamer
+target_res = beamer.resolution
+beamer.send_init()
 
 while True:
-    fn = rand.choice(files)
-
-    orig = Image.open(fn)
+    orig = Image.open(choice.choice())
 
     scale = min(float(target) / old for old, target in zip(orig.size, target_res))
     new_size = tuple(int(old * scale) for old in orig.size)
@@ -130,10 +111,9 @@ while True:
     im = Image.new(mode="RGB", size=target_res)
     im.paste(scaled, top)
 
-    data = ''.join(chr(i) for i in image_pixel(im))
+    print "sending new image ..."
+    beamer.send_image(im)
+    print "new uploaded"
 
-    raw.write(pack(start))
-    full_write(raw, data)
-
-    time.sleep(15)
+    time.sleep(WAIT_INTERVAL)
 
