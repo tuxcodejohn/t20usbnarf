@@ -24,10 +24,10 @@ def read_list(path):
                 yield sub
         elif os.path.splitext(rel)[1].lower() in file_extensions:
             yield abs_path
+
 class DirChoice:
 
     def __init__(self, paths):
-        self.random = random.Random()
         self.files = files = []
         
         for path in paths:
@@ -37,6 +37,18 @@ class DirChoice:
                 files.extend(read_list(path))
             else:
                 print "File '%s' not found!" % path
+
+        random.shuffle(files)
+
+    def choice(self):
+        files= self.files
+
+        path = files[0]
+
+        del files[0]
+        files.append(path)
+
+        return path
 
 class FeedChoice:
 
@@ -51,6 +63,9 @@ class FeedChoice:
     def fetch(self):
         self.hrefs = hrefs = []
         urls = self.urls
+        random = self.random
+
+        new_hrefs = []
 
         print "fetching ..."
 
@@ -61,7 +76,19 @@ class FeedChoice:
                 if 'enclosures' in entry:
                     for enclosure in entry.enclosures:
                         if enclosure.type.startswith('image'):
-                            hrefs.append(enclosure.href)
+                            new_hrefs.append(enclosure.href)
+
+        del_list = []
+        for index, href in enumerate(hrefs):
+            if href not in new_hrefs:
+                del_list.append(index)
+
+        for index in reversed(del_list):
+            del hrefs[index]
+
+        for href in new_hrefs:
+            index = random.randint(0, len(hrefs))
+            hrefs.insert(index, href)
 
         self.last_fetch = time.time()
 
@@ -69,7 +96,13 @@ class FeedChoice:
         if self.last_fetch + FETCH_INTERVAL < time.time():
             self.fetch()
 
-        url = self.random.choice(self.hrefs)
+        hrefs = self.hrefs
+
+        url = hrefs[0]
+
+        del hrefs[0]
+        hrefs.append(url)
+
         print "loading image .."
         data = urllib.urlopen(url).read()
         return StringIO.StringIO(data)
