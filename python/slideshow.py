@@ -25,7 +25,7 @@ def read_list(path):
         elif os.path.splitext(rel)[1].lower() in file_extensions:
             yield abs_path
 
-class DirChoice:
+class FileChoice:
 
     def __init__(self, paths):
         self.files = files = []
