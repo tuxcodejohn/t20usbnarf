@@ -22,9 +22,6 @@ import gobject
 import sys
 gobject.threads_init ()
 
-#
-# Simple Sink element created entirely in python
-#
 
 class BeamerSink(gst.BaseSink):
 
@@ -32,16 +29,14 @@ class BeamerSink(gst.BaseSink):
           gst.PadTemplate ("sink",
                             gst.PAD_SINK,
                             gst.PAD_ALWAYS,
-                            gst.caps_from_string("video/x-raw-rgb,width=640,height=480,bpp=24,framerate=25/1,red_mask=255,blue_mask=16711680")
+                            gst.caps_from_string("\
+                                video/x-raw-rgb, \
+                                width=640,height=480,bpp=24, \
+                                framerate=25/1, \
+                                red_mask=255,blue_mask=16711680")
                           ),
      )
 
-    #_sinkpadtemplate = gst.PadTemplate ("sink",
-    #                                    gst.PAD_SINK,
-    #                                    gst.PAD_ALWAYS,
-    #                                    gst.caps_from_string("video/x-raw-rgb,width=16,height=15,bpp=24")
-#                                        gst.caps_new_any(),
-    #                                    )
     sinkpad = property(lambda self: self.get_pad("sink"))
 
     def __init__(self, beamer):
@@ -51,7 +46,7 @@ class BeamerSink(gst.BaseSink):
         self.beamer = beamer
 
         gst.info('creating sinkpad')
-    #    self.sinkpad = gst.Pad(self._sinkpadtemplate, "sink")
+        #self.sinkpad = gst.Pad(self._sinkpadtemplate, "sink")
         gst.info('adding sinkpad to self')
         #self.add_pad(self.sinkpad)
         self.set_sync(True)
@@ -77,6 +72,7 @@ class BeamerSink(gst.BaseSink):
 gobject.type_register(BeamerSink)
 
 class BeamerPipe:
+
     def __init__(self, location, beamer):
         # The pipeline
         self.pipeline = gst.Pipeline()
