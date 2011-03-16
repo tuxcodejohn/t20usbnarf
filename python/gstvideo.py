@@ -77,82 +77,81 @@ class BeamerSink(gst.BaseSink):
 gobject.type_register(BeamerSink)
 
 class BeamerPipe:
-  def __init__(self, location, beamer):
-    # The pipeline
-    self.pipeline = gst.Pipeline()
-    self.pipeline.auto_clock()
+    def __init__(self, location, beamer):
+        # The pipeline
+        self.pipeline = gst.Pipeline()
+        self.pipeline.auto_clock()
 
-    # Create bus and connect several handlers
-    self.bus = self.pipeline.get_bus()
-    self.bus.add_signal_watch()
-    self.bus.connect('message::eos', self.on_eos)
-    self.bus.connect('message::tag', self.on_tag)
-    self.bus.connect('message::error', self.on_error)
+        # Create bus and connect several handlers
+        self.bus = self.pipeline.get_bus()
+        self.bus.add_signal_watch()
+        self.bus.connect('message::eos', self.on_eos)
+        self.bus.connect('message::tag', self.on_tag)
+        self.bus.connect('message::error', self.on_error)
 
-    # Create elements
-    self.src = gst.element_factory_make('filesrc')
-    self.dec = gst.element_factory_make('decodebin')
-    self.conv = gst.element_factory_make('autoconvert')
-    #self.rsmpl = gst.element_factory_make('audioresample')
-    self.color = gst.element_factory_make('ffmpegcolorspace')
-    self.scale = gst.element_factory_make('videoscale')
-    self.rate = gst.element_factory_make('videorate')
-    self.audio = gst.element_factory_make('autoaudiosink')
-    self.sink = BeamerSink(beamer) #gst.element_factory_make('alsasink')
+        # Create elements
+        self.src = gst.element_factory_make('filesrc')
+        self.dec = gst.element_factory_make('decodebin')
+        self.conv = gst.element_factory_make('autoconvert')
+        #self.rsmpl = gst.element_factory_make('audioresample')
+        self.color = gst.element_factory_make('ffmpegcolorspace')
+        self.scale = gst.element_factory_make('videoscale')
+        self.rate = gst.element_factory_make('videorate')
+        self.audio = gst.element_factory_make('autoaudiosink')
+        self.sink = BeamerSink(beamer) #gst.element_factory_make('alsasink')
 
-    # Set 'location' property on filesrc
-    self.src.set_property('location', location)
+        # Set 'location' property on filesrc
+        self.src.set_property('location', location)
 
-    # Connect handler for 'new-decoded-pad' signal 
-    self.dec.connect('new-decoded-pad', self.on_new_decoded_pad)
+        # Connect handler for 'new-decoded-pad' signal 
+        self.dec.connect('new-decoded-pad', self.on_new_decoded_pad)
 
-    # Add elements to pipeline
-    #self.pipeline.add(self.src, self.dec, self.conv, self.rsmpl, self.sink)
-    self.pipeline.add(self.src, self.dec, self.conv, self.color, self.scale, self.rate, self.sink, self.audio)
+        # Add elements to pipeline
+        #self.pipeline.add(self.src, self.dec, self.conv, self.rsmpl, self.sink)
+        self.pipeline.add(self.src, self.dec, self.conv, self.color, self.scale, self.rate, self.sink, self.audio)
 
-    # Link *some* elements 
-    # This is completed in self.on_new_decoded_pad()
-    self.src.link(self.dec)
-    #gst.element_link_many(self.conv, self.rsmpl, self.sink)
-    gst.element_link_many(self.conv, self.scale, self.color, self.rate, self.sink)
+        # Link *some* elements 
+        # This is completed in self.on_new_decoded_pad()
+        self.src.link(self.dec)
+        #gst.element_link_many(self.conv, self.rsmpl, self.sink)
+        gst.element_link_many(self.conv, self.scale, self.color, self.rate, self.sink)
 
-    # Reference used in self.on_new_decoded_pad()
-    self.vpad = self.conv.get_pad('sink')
-    self.apad = self.audio.get_pad('sink')
+        # Reference used in self.on_new_decoded_pad()
+        self.vpad = self.conv.get_pad('sink')
+        self.apad = self.audio.get_pad('sink')
 
-    # The MainLoop
-    self.mainloop = gobject.MainLoop()
+        # The MainLoop
+        self.mainloop = gobject.MainLoop()
 
-    # And off we go!
-    self.pipeline.set_state(gst.STATE_PLAYING)
-    self.mainloop.run()
+        # And off we go!
+        self.pipeline.set_state(gst.STATE_PLAYING)
+        self.mainloop.run()
 
+    def on_new_decoded_pad(self, element, pad, last):
+        caps = pad.get_caps()
+        name = caps[0].get_name()
+        print 'on_new_decoded_pad:', name
+        if name.startswith('video/x-raw-rgb'):
+            if not self.vpad.is_linked(): # Only link once
+                pad.link(self.vpad)
+        elif name.startswith('audio/'):
+            if not self.apad.is_linked(): # Only link once
+                pad.link(self.apad)
 
-  def on_new_decoded_pad(self, element, pad, last):
-    caps = pad.get_caps()
-    name = caps[0].get_name()
-    print 'on_new_decoded_pad:', name
-    if name.startswith('video/x-raw-rgb'):
-      if not self.vpad.is_linked(): # Only link once
-        pad.link(self.vpad)
-    elif name.startswith('audio/'):
-      if not self.apad.is_linked(): # Only link once
-        pad.link(self.apad)
+    def on_eos(self, bus, msg):
+        print 'on_eos'
+        self.mainloop.quit()
 
-  def on_eos(self, bus, msg):
-    print 'on_eos'
-    self.mainloop.quit()
+    def on_tag(self, bus, msg):
+        taglist = msg.parse_tag()
+        print 'on_tag:'
+        for key in taglist.keys():
+            print '\t%s = %s' % (key, taglist[key])
 
-  def on_tag(self, bus, msg):
-    taglist = msg.parse_tag()
-    print 'on_tag:'
-    for key in taglist.keys():
-      print '\t%s = %s' % (key, taglist[key])
-
-  def on_error(self, bus, msg):
-    error = msg.parse_error()
-    print 'on_error:', error[1]
-    self.mainloop.quit()
+    def on_error(self, bus, msg):
+        error = msg.parse_error()
+        print 'on_error:', error[1]
+        self.mainloop.quit()
 
 beamer = t20.Beamer()
 beamer.send_init()
