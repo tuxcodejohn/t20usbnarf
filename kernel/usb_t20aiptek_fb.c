@@ -1,27 +1,7 @@
-#include "initmagic_t20aiptek.h"
-
-#define FRAME_SIZE		(640*480*3)
-#define FRAME_WIDTH		(640)
-#define FRAME_HEIGHT		(480)
-
-#define INPUT_EP		1
-#define RAW_EP			2
-#define COMMAND_EP		3
-
-#define NULL_BULK_LEN		(75*512)
 
 
 /*
- * USB Skeleton driver - 2.2
- *
- * Copyright (C) 2001-2004 Greg Kroah-Hartman (greg@kroah.com)
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License as
- *	published by the Free Software Foundation, version 2.
- *
- * This driver is based on the 2.6.3 version of drivers/usb/usb-t20aipteketon.c
- * but has been rewritten to be easier to read and use.
+ * USB Skeleton driver2.2 based driver for aiptek T20 mini usb projector
  *
  */
 
@@ -35,8 +15,8 @@
 #include <linux/usb.h>
 #include <linux/mutex.h>
 
+#include <linux/fb.h>
 
-/* Define these values to match your devices */
 #define USB_T20AIPTEK_VENDOR_ID		0x08ca
 #define USB_T20AIPTEK_PRODUCT_ID	0x2137
 
@@ -48,10 +28,21 @@ static const struct usb_device_id t20aiptek_table[] = {
 MODULE_DEVICE_TABLE(usb, t20aiptek_table);
 
 
-/* Get a minor range for your devices from the usb maintainer */
-#define USB_T20AIPTEK_MINOR_BASE	192
 
-/* our private defines. if this grows any larger, use your own .h file */
+/* our private defines */
+
+#include "initmagic_t20aiptek.h"
+
+#define FRAME_SIZE		(640*480*3)
+#define FRAME_WIDTH		(640)
+#define FRAME_HEIGHT		(480)
+
+#define INPUT_EP		1
+#define RAW_EP			2
+#define COMMAND_EP		3
+
+#define NULL_BULK_LEN		(75*512)
+
 #define MAX_TRANSFER		(PAGE_SIZE - 512)
 /* MAX_TRANSFER is chosen so that the VM is not stressed by
    allocations > PAGE_SIZE and the number of packets in a page
@@ -59,11 +50,57 @@ MODULE_DEVICE_TABLE(usb, t20aiptek_table);
 #define WRITES_IN_FLIGHT	8
 /* arbitrarily chosen */
 
+/*
+ * The hardware only handles a single mode: 640x480 24 bit true
+ * color. Each pixel gets a word (32 bits) of memory.  Within each word,
+ * the 8 most significant bits are ignored, the next 8 bits are the red
+ * level, the next 8 bits are the green level and the 8 least
+ * significant bits are the blue level.  Each row of the LCD uses 1024
+ * words, but only the first 640 pixels are displayed with the other 384
+ * words being ignored.  There are 480 rows.
+ */
+#define BYTES_PER_PIXEL	4
+#define BITS_PER_PIXEL	(BYTES_PER_PIXEL * 8)
+
+#define RED_SHIFT	16
+#define GREEN_SHIFT	8
+#define BLUE_SHIFT	0
+
+#define PALETTE_ENTRIES_NO	16
+
+
+
+/*
+ * Here are the default fb_fix_screeninfo and fb_var_screeninfo structures
+ */
+static struct fb_fix_screeninfo t20aiptek_fb_fix = {
+	.id =		"Aiptek T20 USB",
+	.type =		FB_TYPE_PACKED_PIXELS,
+	.visual =	FB_VISUAL_TRUECOLOR,
+	.accel =	FB_ACCEL_NONE
+};
+
+static struct fb_var_screeninfo t20aiptek_fb_var = {
+	.bits_per_pixel =	BITS_PER_PIXEL,
+	.grayscale	= 0 ,/*well at least I paid for color device*/
+	.height		= 30,  /*of course this is bullshit :-) */
+	.width		= 40,
+	.xres		= 1024,
+	.xres_virtual	=  640,
+	.yres		=  480,
+	.yres_virtual	=  480,
+	.red =		{ RED_SHIFT, 8, 0 },
+	.green =	{ GREEN_SHIFT, 8, 0 },
+	.blue =		{ BLUE_SHIFT, 8, 0 },
+	.transp =	{ 0, 0, 0 },
+	.activate =	FB_ACTIVATE_NOW
+};
+
 /* Structure to hold all of our device specific stuff */
 struct usb_t20aiptek {
 	struct usb_device	*udev;			/* the usb device for this device */
 	struct usb_interface	*interface;		/* the interface for this device */
-	struct semaphore	limit_sem;		/* limiting the number of writes in progress */ //FIXME: brauchen wir sicher ni
+	struct semaphore	limit_sem;		/* limiting the number of writes in progress */
 	struct usb_anchor	submitted;		/* in case we need to retract our submissions */
 	struct urb		*bulk_in_urb;		/* the urb to read data with */
 	unsigned char           *bulk_in_buffer;	/* the buffer to receive data */
@@ -76,15 +113,26 @@ struct usb_t20aiptek {
 	__u8			bulk_raw_endpointAddr;
 	__u8 			bulk_command_endpointAddr;
 	int			errors;			/* the last request tanked */
-	int			open_count;		/* count the number of openers */
-	bool			ongoing_read;		/* a read is going on */
+//	int			open_count;		/* count the number of openers */
+//	bool			ongoing_read;		/* a read is going on */
 	bool			processed_urb;		/* indicates we haven't processed the urb */
 	spinlock_t		err_lock;		/* lock for errors */
 	struct kref		kref;
 	struct mutex		io_mutex;		/* synchronize I/O with disconnect */
 	struct completion	bulk_in_completion;	/* to wait for an ongoing read */
+	/*framebufferstuff follows :*/
+	struct fb_info		info;			/* frame buffer info */
+	void			*fb_virt;	/* virt. address of the frame buffer */
+	dma_addr_t		fb_phys;	/* phys. address of the frame buffer */
+	int			fb_alloced;	/* Flag, was the fb memory alloced? */
+
+	
+	u32		pseudo_palette[PALETTE_ENTRIES_NO];
+					/* Fake palette of 16 colors */
+
 };
 #define to_t20aiptek_dev(d) container_of(d, struct usb_t20aiptek, kref)
+#define fbinfo_to_t20aiptek_dev(d) container_of(d, struct usb_t20aiptek, info)
 
 static struct usb_driver t20aiptek_driver;
 static void t20aiptek_draw_down(struct usb_t20aiptek *dev);
@@ -600,6 +648,9 @@ static int t20aiptek_probe(struct usb_interface *interface,
 	/* save our data pointer in this interface device */
 	usb_set_intfdata(interface, dev);
 
+	
+	/*frambuffer initialisation :*/
+	
 	/* we can register the device now, as it is ready */
 	retval = usb_register_dev(interface, &t20aiptek_class);
 	if (retval) {
@@ -621,6 +672,33 @@ error:
 		kref_put(&dev->kref, t20aiptek_delete);
 	return retval;
 }
+
+static struct fb_ops t20aiptekfb_ops =
+{
+	.owner			= THIS_MODULE,
+	.fb_setcolreg		= t20aiptekfb_setcolreg,
+	.fb_blank		= t20aiptekfb_blank,
+	.fb_fillrect		= cfb_fillrect,
+	.fb_copyarea		= cfb_copyarea,
+	.fb_imageblit		= cfb_imageblit,
+};
+
+static void t20aiptek_fb_init(struct usb_t20aiptek * drvdata)
+{
+		/* Fill struct fb_info */
+	drvdata->info.device = dev;
+	drvdata->info.screen_base = (void __iomem *)drvdata->fb_virt;
+	drvdata->info.fbops = &t20aiptekfb_ops;
+	drvdata->info.fix = t20aiptek_fb_fix;
+	drvdata->info.fix.smem_start = drvdata->fb_phys;
+	drvdata->info.fix.smem_len = fbsize;
+	drvdata->info.fix.line_length = pdata->xvirt * BYTES_PER_PIXEL;
+
+	drvdata->info.pseudo_palette = drvdata->pseudo_palette;
+	drvdata->info.flags = FBINFO_DEFAULT;
+	drvdata->info.var = t20aiptek_fb_var;
+	
+
 
 static void t20aiptek_disconnect(struct usb_interface *interface)
 {
@@ -693,11 +771,11 @@ static int t20aiptek_post_reset(struct usb_interface *intf)
 }
 
 static struct usb_driver t20aiptek_driver = {
-	.name =		"t20aipteketon",
+	.name =		"t20aiptek",
 	.probe =	t20aiptek_probe,
 	.disconnect =	t20aiptek_disconnect,
-	.suspend =	t20aiptek_suspend,
-	.resume =	t20aiptek_resume,
+	.suspend =	t20aiptek_suspend, //Maybe we cant
+	.resume =	t20aiptek_resume,  //do this ?? -> more reversing needed
 	.pre_reset =	t20aiptek_pre_reset,
 	.post_reset =	t20aiptek_post_reset,
 	.id_table =	t20aiptek_table,
@@ -725,35 +803,10 @@ static void __exit usb_t20aiptek_exit(void)
 module_init(usb_t20aiptek_init);
 module_exit(usb_t20aiptek_exit);
 
-MODULE_LICENSE("GPL");
+MODULE_AUTHOR("john at tuxcode dot org, FIXME THAMMI ; <<</>> c3d2.de");
+MODULE_DESCRIPTION("Aiptek T20 USB mini projector frame buffer driver");
 
-int find_beamer(beamer_handle* beamer) {
-	libusb_context *ctx;
-	int res;
-
-	res = libusb_init(&ctx);
-
-	libusb_set_debug(ctx, 3);
-
-	*beamer = libusb_open_device_with_vid_pid(ctx, VENDOR_ID, PRODUCT_ID);
-	
-	if(*beamer == NULL) {
-		return -1;
-	}
-
-	res = libusb_claim_interface(*beamer, 0);
-
-	return 0;
-}
-
-int finalize_beamer(beamer_handle beamer) {
-	libusb_release_interface(beamer, 0);
-
-
-	libusb_close(beamer);
-
-	return 0;
-}
+MODULE_LICENSE("GPL"); 
 
 int init_beamer(beamer_handle beamer) {
 	int i, transferred;
