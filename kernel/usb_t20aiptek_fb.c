@@ -124,6 +124,12 @@ struct usb_t20aiptek {
 static struct usb_driver t20aiptek_driver;
 static void t20aiptek_draw_down(struct usb_t20aiptek *dev);
 
+static int t20_fb_init(struct usb_t20aiptek * drvdata);
+static int t20_beamer_init(struct usb_t20aiptek * drvdata);
+
+
+
+
 static void t20_delete(struct kref *kref)
 {
 	struct usb_t20aiptek *dev = to_t20aiptek_dev(kref);
@@ -219,9 +225,16 @@ static int t20_probe(struct usb_interface *interface,
 
 	
 	/*frambuffer initialisation :*/
-	retval = t20aiptek_fb_init(dev)
+	retval = t20_fb_init(dev);
 	if(retval){
 		err("Problems during framebuffer initalisation. Scheiße!");
+		goto error;
+	}
+	
+	/*send init seq and switch on lamp*/
+	retval = t20_beamer_init(dev);
+	if(retval){
+		err("fuck that doesn't work. debug it!");
 		goto error;
 	}
 	return 0;
@@ -289,7 +302,7 @@ static void t20_imageblit(struct fb_info *info, const struct fb_image *image){
 	t20_sendimage();
 }
 
-static void t20aiptek_fb_init(struct usb_t20aiptek * drvdata)
+static int  t20_fb_init(struct usb_t20aiptek * drvdata)
 {
 	int rc;
 	size_t fbsize = t20aiptek_fb_var.xvirt * t20aiptek_fb_var.yvirt * BYTES_PER_PIXEL;
@@ -357,6 +370,41 @@ err_nallok:
 	return rc;
 }
 
+
+static int t20_beamer_init(struct usb_t20aiptek  *dev )
+{
+
+	int i, transferred,pipe;
+	struct usb_device *usbdev = dev->udev;
+	pipe = usb_sndbulkpipe(usbdev, P54U_PIPE_DATA);
+
+	for(i = 0; i < ARRAY_SIZE(phase0) ; ++i) {
+		char* data = phase0[i];
+		size_t len = command_length(data);
+
+		libusb_bulk_transfer(beamer, (COMMAND_EP | LIBUSB_ENDPOINT_OUT), data, len, &transferred, 2000);
+	}
+
+	static const char nullcmd_data[]= "\x11\x00\x00\x00\x00\xa0\x00\x78\x00\x80\x02\xe0\x01\x00\x10\x00\x10\x04\x00\x96\x00";
+
+	libusb_bulk_transfer(beamer, (RAW_EP | LIBUSB_ENDPOINT_OUT), nullcmd_data,ARRAY_SIZE(nullcmd_len), &transferred, 2000);
+
+	char* null_space = malloc(NULL_BULK_LEN);
+	memset(null_space, 0, NULL_BULK_LEN);
+	libusb_bulk_transfer(beamer, (RAW_EP | LIBUSB_ENDPOINT_OUT), null_space, NULL_BULK_LEN, &transferred, 2000);
+	free(null_space);
+
+	for(i = 0; i < sizeof(phase1)/sizeof(phase1[0]); ++i) {
+		char* data = phase1[i];
+		size_t len = command_length(data);
+
+		libusb_bulk_transfer(beamer, (COMMAND_EP | LIBUSB_ENDPOINT_OUT), data, len, &transferred, 2000);
+	}
+
+	return 0;
+
+
+}
 
 
 static void t20_disconnect(struct usb_interface *interface)
