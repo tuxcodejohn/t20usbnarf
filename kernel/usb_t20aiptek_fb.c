@@ -411,9 +411,6 @@ static int t20_beamer_init(struct usb_t20aiptek  *dev )
 		return 1;
 	}
 
-
-
-
 	char* null_space = malloc(NULL_BULK_LEN);
 	memset(null_space, 0, NULL_BULK_LEN);
 	libusb_bulk_transfer(beamer, (RAW_EP | LIBUSB_ENDPOINT_OUT), null_space, NULL_BULK_LEN, &transferred, 2000);
