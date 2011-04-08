@@ -155,7 +155,7 @@ static int t20_probe(struct usb_interface *interface,
 	/* allocate memory for our device state and initialize it */
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev) {
-		err("Out of memory");
+		dev_err(dev->udev->dev,"Out of memory");
 		goto error;
 	}
 	kref_init(&dev->kref);
@@ -210,12 +210,12 @@ static int t20_probe(struct usb_interface *interface,
 	dev->bulk_in_size = buffer_size;
 	dev->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
 	if (!dev->bulk_in_buffer) {
-		err("Could not allocate bulk_in_buffer");
+		dev_err(interface->dev,"Could not allocate bulk_in_buffer");
 		goto error;
 	}
 	dev->bulk_in_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!dev->bulk_in_urb) {
-		err("Could not allocate bulk_in_urb");
+		dev_err(interface->dev,"Could not allocate bulk_in_urb");
 		goto error;
 	}
 
@@ -227,14 +227,14 @@ static int t20_probe(struct usb_interface *interface,
 	/*frambuffer initialisation :*/
 	retval = t20_fb_init(dev);
 	if(retval){
-		err("Problems during framebuffer initalisation. Scheiße!");
+		dev_err(interface->dev,"Problems during framebuffer initalisation. Scheiße!");
 		goto error;
 	}
 	
 	/*send init seq and switch on lamp*/
 	retval = t20_beamer_init(dev);
 	if(retval){
-		err("fuck that doesn't work. debug it!");
+		dev_err(interface->dev,"fuck that doesn't work. debug it!");
 		goto error;
 	}
 	return 0;
@@ -288,18 +288,28 @@ t20_blank(int blank_mode, struct fb_info *fbi)
 }
 
 static void t20_fillrect(struct fb_info *info, const struct fb_fillrect *rect){
-	sys_fillrect(info, rect);
+	struct usb_t20aiptek *dev = fbinfo_to_t20aiptek_dev(info);
+	mutex_lock(&dev->fb_mutex);
+	sys_fillrect(info, rect);	
 	t20_sendimage();
+	mutex_unlock(&dev->fb_mutex);
 }
 
 static void t20_copyarea(struct fb_info *info, const struct fb_copyarea *area){
+	struct usb_t20aiptek *dev = fbinfo_to_t20aiptek_dev(info);
+
+	mutex_lock(&dev->fb_mutex);
 	sys_copyarea(info , area);
 	t20_sendimage();
+	mutex_unlock(&dev->fb_mutex);
 }
 
 static void t20_imageblit(struct fb_info *info, const struct fb_image *image){
+	struct usb_t20aiptek *dev = fbinfo_to_t20aiptek_dev(info);
+	mutex_lock(&dev->fb_mutex);
 	sys_imageblit(info,image);
 	t20_sendimage();
+	mutex_unlock(&dev->fb_mutex);
 }
 
 static int  t20_fb_init(struct usb_t20aiptek * drvdata)
@@ -374,20 +384,35 @@ err_nallok:
 static int t20_beamer_init(struct usb_t20aiptek  *dev )
 {
 
-	int i, transferred,pipe;
+	int i, transferred,pipe,retval;
+	size_t len , actlen;
 	struct usb_device *usbdev = dev->udev;
-	pipe = usb_sndbulkpipe(usbdev, P54U_PIPE_DATA);
 
+	pipe = usb_sndbulkpipe(usbdev, dev->bulk_command_endpointAddr);
 	for(i = 0; i < ARRAY_SIZE(phase0) ; ++i) {
 		char* data = phase0[i];
-		size_t len = command_length(data);
-
-		libusb_bulk_transfer(beamer, (COMMAND_EP | LIBUSB_ENDPOINT_OUT), data, len, &transferred, 2000);
+		len = command_length(data);
+		retval = usb_bulk_msg(usbdev, pipe, data, len, &actlen, HZ * 10);
+		if (retval || (len=!actlen)) {
+			dev_err(usbdev->dev,"Mhhh sending stuff didnt work");
+			return 1;
+		}
 	}
 
 	static const char nullcmd_data[]= "\x11\x00\x00\x00\x00\xa0\x00\x78\x00\x80\x02\xe0\x01\x00\x10\x00\x10\x04\x00\x96\x00";
+	retval = usb_bulk_msg(usbdev , 
+			usb_sndbulkpipe(usbdev , dev->bulk_raw_endpointAddr) ,
+			nullcmd_data ,
+			ARRAY_SIZE(nullcmd_data),
+			&actlen,
+			HZ *10 );
+	if (retval || (len=!actlen)) {
+		dev_err(usbdev->dev,"Mhhh sending stuff didnt work");
+		return 1;
+	}
 
-	libusb_bulk_transfer(beamer, (RAW_EP | LIBUSB_ENDPOINT_OUT), nullcmd_data,ARRAY_SIZE(nullcmd_len), &transferred, 2000);
+
+
 
 	char* null_space = malloc(NULL_BULK_LEN);
 	memset(null_space, 0, NULL_BULK_LEN);
