@@ -51,15 +51,9 @@ MODULE_DEVICE_TABLE(usb, t20aiptek_table);
 /* arbitrarily chosen */
 
 /*
- * The hardware only handles a single mode: 640x480 24 bit true
- * color. Each pixel gets a word (32 bits) of memory.  Within each word,
- * the 8 most significant bits are ignored, the next 8 bits are the red
- * level, the next 8 bits are the green level and the 8 least
- * significant bits are the blue level.  Each row of the LCD uses 1024
- * words, but only the first 640 pixels are displayed with the other 384
- * words being ignored.  There are 480 rows.
+ * 3 sux, so ill try other way but later...
  */
-#define BYTES_PER_PIXEL	4
+#define BYTES_PER_PIXEL	3
 #define BITS_PER_PIXEL	(BYTES_PER_PIXEL * 8)
 
 #define RED_SHIFT	16
@@ -85,10 +79,10 @@ static struct fb_var_screeninfo t20aiptek_fb_var = {
 	.grayscale	= 0 ,/*well at least I paid for color device*/
 	.height		= 30,  /*of course this is bullshit :-) */
 	.width		= 40,
-	.xres		= 1024,
-	.xres_virtual	=  640,
-	.yres		=  480,
-	.yres_virtual	=  480,
+	.xres		= FRAME_WIDTH,
+	.xres_virtual	= FRAME_WIDTH,
+	.yres		= FRAME_HEIGHT,
+	.yres_virtual	= FRAME_HEIGHT,
 	.red =		{ RED_SHIFT, 8, 0 },
 	.green =	{ GREEN_SHIFT, 8, 0 },
 	.blue =		{ BLUE_SHIFT, 8, 0 },
@@ -100,8 +94,6 @@ static struct fb_var_screeninfo t20aiptek_fb_var = {
 struct usb_t20aiptek {
 	struct usb_device	*udev;			/* the usb device for this device */
 	struct usb_interface	*interface;		/* the interface for this device */
-	struct semaphore	limit_sem;		/* limiting the number of writes in progress */
-	struct usb_anchor	submitted;		/* in case we need to retract our submissions */
 	struct urb		*bulk_in_urb;		/* the urb to read data with */
 	unsigned char           *bulk_in_buffer;	/* the buffer to receive data */
 	size_t			bulk_in_size;		/* the size of the receive buffer */
@@ -112,14 +104,13 @@ struct usb_t20aiptek {
 	__u8			bulk_input_endpointAddr;
 	__u8			bulk_raw_endpointAddr;
 	__u8 			bulk_command_endpointAddr;
-	int			errors;			/* the last request tanked */
 	bool			processed_urb;		/* indicates we haven't processed the urb */
-	spinlock_t		err_lock;		/* lock for errors */
 	struct kref		kref;
 	struct mutex		io_mutex;		/* synchronize I/O with disconnect */
 	struct completion	bulk_in_completion;	/* to wait for an ongoing read */
 	/*framebufferstuff follows :*/
 	struct fb_info		info;			/* frame buffer info */
+	struct mutex		fb_mutex;	/*let only atomic streamread */	
 	void			*fb_virt;	/* virt. address of the frame buffer */
 	dma_addr_t		fb_phys;	/* phys. address of the frame buffer */
 	
@@ -162,10 +153,8 @@ static int t20_probe(struct usb_interface *interface,
 		goto error;
 	}
 	kref_init(&dev->kref);
-	sema_init(&dev->limit_sem, WRITES_IN_FLIGHT);
 	mutex_init(&dev->io_mutex);
-	spin_lock_init(&dev->err_lock);
-	init_usb_anchor(&dev->submitted);
+	mutex_init(&dev->fb_mutex);
 	init_completion(&dev->bulk_in_completion);
 
 	dev->udev = usb_get_dev(interface_to_usbdev(interface));
@@ -174,6 +163,8 @@ static int t20_probe(struct usb_interface *interface,
 	/* set up the endpoint information */
 	/* use only the first bulk-in and bulk-out endpoints */
 	iface_desc = interface->cur_altsetting;
+	//do sophisticated stuff later :-D
+#if 0
 	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
 		endpoint = &iface_desc->endpoint[i].desc;
 
@@ -205,6 +196,23 @@ static int t20_probe(struct usb_interface *interface,
 		err("Could not find both bulk-in and bulk-out endpoints");
 		goto error;
 	}
+#else
+	dev->bulk_input_endpointAddr	= INPUT_EP;
+	dev->bulk_raw_endpointAddr	= RAW_EP;
+	dev->bulk_command_endpointAddr	= COMMAND_EP;
+	buffer_size = 512 ;
+	dev->bulk_in_size = buffer_size;
+	dev->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
+	if (!dev->bulk_in_buffer) {
+		err("Could not allocate bulk_in_buffer");
+		goto error;
+	}
+	dev->bulk_in_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if (!dev->bulk_in_urb) {
+		err("Could not allocate bulk_in_urb");
+		goto error;
+	}
+
 
 	/* save our data pointer in this interface device */
 	usb_set_intfdata(interface, dev);
@@ -366,7 +374,7 @@ static void t20_disconnect(struct usb_interface *interface)
 	dev->interface = NULL;
 	mutex_unlock(&dev->io_mutex);
 
-	usb_kill_anchored_urbs(&dev->submitted);
+	 t20_fb_release(dev);
 
 	/* decrement our usage count */
 	kref_put(&dev->kref, t20_delete);
@@ -378,7 +386,7 @@ static void t20_disconnect(struct usb_interface *interface)
 static int t20_fb_release(struct usb_t20aiptek *drvdata)
 {
 
-	//TODO maybe do blanking stuff
+	//TODO maybe do blanking stuff 
 
 	unregister_framebuffer(&drvdata->info);
 	fb_dealloc_cmap(&drvdata->info.cmap);
@@ -473,4 +481,62 @@ int send_raw_image(beamer_handle beamer, char* data) {
 	libusb_bulk_transfer(beamer, (RAW_EP | LIBUSB_ENDPOINT_OUT), startcmd_data, startcmd_len, &transferred, 2000);
 
 	libusb_bulk_transfer(beamer, (RAW_EP | LIBUSB_ENDPOINT_OUT), data, FRAME_SIZE, &transferred, 2000);
+}
+
+static void fetch_senddata(struct usb_t20aiptek *dev){
+
+	int i;
+	mutex_lock(&dev->fb_mutex);
+	for i 
+
+
+static int simple_io(
+        struct usbtest_dev      *tdev,
+        struct urb              *urb,
+        int                     iterations,
+        int                     vary,
+        int                     expected,
+        const char              *label
+)
+{
+        struct usb_device       *udev = urb->dev;
+        int                     max = urb->transfer_buffer_length;
+        struct completion       completion;
+        int                     retval = 0;
+
+        urb->context = &completion;
+        while (retval == 0 && iterations-- > 0) {
+                init_completion(&completion);
+                if (usb_pipeout(urb->pipe))
+                        simple_fill_buf(urb);
+                retval = usb_submit_urb(urb, GFP_KERNEL);
+                if (retval != 0)
+                        break;
+
+                /* NOTE:  no timeouts; can't be broken out of by interrupt */
+                wait_for_completion(&completion);
+                retval = urb->status;
+                urb->dev = udev;
+                if (retval == 0 && usb_pipein(urb->pipe))
+                        retval = simple_check_buf(tdev, urb);
+
+                if (vary) {
+                        int     len = urb->transfer_buffer_length;
+
+                        len += vary;
+                        len %= max;
+                        if (len == 0)
+                                len = (vary < max) ? vary : max;
+                        urb->transfer_buffer_length = len;
+                }
+
+                /* FIXME if endpoint halted, clear halt (and log) */
+        }
+        urb->transfer_buffer_length = max;
+
+        if (expected != retval)
+                dev_err(&udev->dev,
+                        "%s failed, iterations left %d, status %d (not %d)\n",
+                                label, iterations, retval, expected);
+        return retval;
 }
