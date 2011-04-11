@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from initdata import phase0, phase1
 
 templ = '''\
