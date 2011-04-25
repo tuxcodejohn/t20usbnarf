@@ -22,11 +22,8 @@ int main(int argc, char *args[]) {
 
 	create_image(&image);
 
-	send_white_image(beamer);
-
 	char* data = malloc(FRAME_SIZE);
 
-	memset(data, 0xff, FRAME_SIZE);
 	read_image(image, args[1], data);
 	send_raw_image(beamer, data);
 
