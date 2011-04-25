@@ -51,6 +51,14 @@ int init_beamer(beamer_handle beamer) {
 		size_t len = command_length(data);
 
 		libusb_bulk_transfer(beamer, (COMMAND_EP | LIBUSB_ENDPOINT_OUT), (void*) data, len, &transferred, 2000);
+
+		if(data[0] == 0x04) {
+			// this type of command seems to need same time to settle ...
+			// this might wake up certain parts of the beamer
+			// TODO: investigate further!
+			// 1ms seems to work too, take 10ms to be sure
+			usleep(10 * 1000);
+		}
 	}
 
 	char nullcmd_data[] = "\x11\x00\x00\x00\x00\xa0\x00\x78\x00\x80\x02\xe0\x01\x00\x10\x00\x10\x04\x00\x96\x00";
