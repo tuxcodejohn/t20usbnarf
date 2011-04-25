@@ -29,6 +29,8 @@ int read_image(image_handle handle, const char* file_name, char* data) {
 	}
 
 	ClearMagickWand(handle);
+
+	return 0;
 }
 
 int finalize_image(image_handle handle) {
