@@ -33,9 +33,9 @@ MODULE_DEVICE_TABLE(usb, t20aiptek_table);
 
 #include "initmagic_t20aiptek.h"
 
-#define FRAME_SIZE		(640*480*3)
-#define FRAME_WIDTH		(640)
-#define FRAME_HEIGHT		(480)
+#define T20FRAME_SIZE		(640*480*3)
+#define T20FRAME_WIDTH		(640)
+#define T20FRAME_HEIGHT		(480)
 
 #define INPUT_EP		1
 #define RAW_EP			2
@@ -79,10 +79,10 @@ static struct fb_var_screeninfo t20aiptek_fb_var = {
 	.grayscale	= 0 ,/*well at least I paid for color device*/
 	.height		= 30,  /*of course this is bullshit :-) */
 	.width		= 40,
-	.xres		= FRAME_WIDTH,
-	.xres_virtual	= FRAME_WIDTH,
-	.yres		= FRAME_HEIGHT,
-	.yres_virtual	= FRAME_HEIGHT,
+	.xres		= T20FRAME_WIDTH,
+	.xres_virtual	= T20FRAME_WIDTH,
+	.yres		= T20FRAME_HEIGHT,
+	.yres_virtual	= T20FRAME_HEIGHT,
 	.red =		{ RED_SHIFT, 8, 0 },
 	.green =	{ GREEN_SHIFT, 8, 0 },
 	.blue =		{ BLUE_SHIFT, 8, 0 },
@@ -130,6 +130,10 @@ static int t20_beamer_init(struct usb_t20aiptek * drvdata);
 
 
 
+
+
+
+
 static void t20_delete(struct kref *kref)
 {
 	struct usb_t20aiptek *dev = to_t20aiptek_dev(kref);
@@ -147,15 +151,14 @@ static int t20_probe(struct usb_interface *interface,
 {
 	struct usb_t20aiptek *dev;
 	struct usb_host_interface *iface_desc;
-	struct usb_endpoint_descriptor *endpoint;
+	//struct usb_endpoint_descriptor *endpoint;
 	size_t buffer_size;
-	int i;
 	int retval = -ENOMEM;
 
 	/* allocate memory for our device state and initialize it */
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev) {
-		dev_err(dev->udev->dev,"Out of memory");
+		dev_err(&(dev->udev->dev),"Out of memory");
 		goto error;
 	}
 	kref_init(&dev->kref);
@@ -210,12 +213,12 @@ static int t20_probe(struct usb_interface *interface,
 	dev->bulk_in_size = buffer_size;
 	dev->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
 	if (!dev->bulk_in_buffer) {
-		dev_err(interface->dev,"Could not allocate bulk_in_buffer");
+		dev_err(&interface->dev,"Could not allocate bulk_in_buffer");
 		goto error;
 	}
 	dev->bulk_in_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!dev->bulk_in_urb) {
-		dev_err(interface->dev,"Could not allocate bulk_in_urb");
+		dev_err(&interface->dev,"Could not allocate bulk_in_urb");
 		goto error;
 	}
 
@@ -227,14 +230,14 @@ static int t20_probe(struct usb_interface *interface,
 	/*frambuffer initialisation :*/
 	retval = t20_fb_init(dev);
 	if(retval){
-		dev_err(interface->dev,"Problems during framebuffer initalisation. Scheiße!");
+		dev_err(&interface->dev,"Problems during framebuffer initalisation. Scheiße!");
 		goto error;
 	}
 	
 	/*send init seq and switch on lamp*/
 	retval = t20_beamer_init(dev);
 	if(retval){
-		dev_err(interface->dev,"fuck that doesn't work. debug it!");
+		dev_err(&interface->dev,"fuck that doesn't work. debug it!");
 		goto error;
 	}
 	return 0;
@@ -250,6 +253,11 @@ static void t20_fillrect(struct fb_info *info, const struct fb_fillrect *rect);
 static void t20_copyarea(struct fb_info *info, const struct fb_copyarea *area);
 static void t20_imageblit(struct fb_info *info, const struct fb_image *image);
 static int t20_blank(int blank_mode, struct fb_info *fbi);
+static int t20_setcolreg(unsigned regno, unsigned red, unsigned green,
+			    unsigned blue, unsigned transp, struct fb_info *info);
+
+static void t20_sendimage(void);
+
 
 
 static struct fb_ops t20aiptekfb_ops =
@@ -287,6 +295,13 @@ t20_blank(int blank_mode, struct fb_info *fbi)
 	return 0; /* success */
 }
 
+static int t20_setcolreg(unsigned regno, unsigned red, unsigned green,
+			    unsigned blue, unsigned transp, struct fb_info *info)
+{
+	return 0;
+}
+
+
 static void t20_fillrect(struct fb_info *info, const struct fb_fillrect *rect){
 	struct usb_t20aiptek *dev = fbinfo_to_t20aiptek_dev(info);
 	mutex_lock(&dev->fb_mutex);
@@ -312,14 +327,20 @@ static void t20_imageblit(struct fb_info *info, const struct fb_image *image){
 	mutex_unlock(&dev->fb_mutex);
 }
 
+
+static void t20_sendimage(void)
+{
+	return;
+}
+
+
 static int  t20_fb_init(struct usb_t20aiptek * drvdata)
 {
 	int rc;
-	size_t fbsize = t20aiptek_fb_var.xvirt * t20aiptek_fb_var.yvirt * BYTES_PER_PIXEL;
+	size_t fbsize = t20aiptek_fb_var.xres_virtual * t20aiptek_fb_var.yres_virtual * BYTES_PER_PIXEL;
 
 	/* allocate frambuffer memory */
-	drvdata->fb_virt = dma_alloc_coherent(dev, PAGE_ALIGN(fbsize),
-			&drvdata->fb_phys, GFP_KERNEL);
+	drvdata->fb_virt = kmalloc(fbsize, GFP_KERNEL);
 	if (!drvdata->fb_virt) {
 		dev_err(dev, "Could not allocate frame buffer memory\n");
 		rc = -ENOMEM;
@@ -327,7 +348,7 @@ static int  t20_fb_init(struct usb_t20aiptek * drvdata)
 	}
 
 	/* Clear (turn to black) the framebuffer */
-	memset_io((void __iomem *)drvdata->fb_virt, 0, fbsize);
+	memset(drvdata->fb_virt, 0, fbsize);
 
 
 	/* Fill struct fb_info */
@@ -393,7 +414,7 @@ static int t20_beamer_init(struct usb_t20aiptek  *dev )
 		char* data = phase0[i];
 		len = command_length(data);
 		retval = usb_bulk_msg(usbdev, pipe, data, len, &actlen, HZ * 10);
-		if (retval || (len=!actlen)) {
+		if (retval || (len!=actlen)) {
 			dev_err(usbdev->dev,"Mhhh sending stuff didnt work");
 			return 1;
 		}
@@ -406,26 +427,43 @@ static int t20_beamer_init(struct usb_t20aiptek  *dev )
 			ARRAY_SIZE(nullcmd_data),
 			&actlen,
 			HZ *10 );
-	if (retval || (len=!actlen)) {
+	if (retval || (len!=actlen)) {
 		dev_err(usbdev->dev,"Mhhh sending stuff didnt work");
 		return 1;
 	}
+#if (NULL_BULK_LEN < PAGE_SIZE )
+	char* null_space = get_zeroed_page(GFP_KERNEL);
+#else
+#error PLZ FIX ME AT __LINE__ __FILE__
+#endif
+	retval = usb_bulk_msg(usbdev , 
+			usb_sndbulkpipe(usbdev , dev->bulk_raw_endpointAddr),
+			null_space,
+			NULL_BULK_LEN, 
+			&actlen ,
+			HZ *10 );
+	if (retval || (NULL_BULK_LEN != actlen)) {
+		dev_err(usbdev->dev,"Mhhh sending zeros didnt work");
+		return 1;
+	}
 
-	char* null_space = malloc(NULL_BULK_LEN);
-	memset(null_space, 0, NULL_BULK_LEN);
-	libusb_bulk_transfer(beamer, (RAW_EP | LIBUSB_ENDPOINT_OUT), null_space, NULL_BULK_LEN, &transferred, 2000);
-	free(null_space);
-
+	free_page(null_space);
 	for(i = 0; i < sizeof(phase1)/sizeof(phase1[0]); ++i) {
 		char* data = phase1[i];
 		size_t len = command_length(data);
-
-		libusb_bulk_transfer(beamer, (COMMAND_EP | LIBUSB_ENDPOINT_OUT), data, len, &transferred, 2000);
+		retval = usb_bulk_msg(usbdev , 
+				usb_sndbulkpipe(usbdev , dev->bulk_out_endpointAddr),
+				data,
+				len, 
+				&actlen ,
+				HZ *10 );
+		if (retval || (len!=actlen)) {
+			dev_err(usbdev->dev,"Mhhh sending phase1[%d]",i);
+			return 1;
+		}
 	}
 
 	return 0;
-
-
 }
 
 
@@ -445,10 +483,8 @@ static void t20_disconnect(struct usb_interface *interface)
 	mutex_unlock(&dev->io_mutex);
 
 	 t20_fb_release(dev);
-
 	/* decrement our usage count */
 	kref_put(&dev->kref, t20_delete);
-
 	dev_info(&interface->dev, "USB Skeleton #%d now disconnected", minor);
 }
 
@@ -499,41 +535,13 @@ static void __exit usb_t20aiptek_exit(void)
 module_init(usb_t20aiptek_init);
 module_exit(usb_t20aiptek_exit);
 
-MODULE_AUTHOR("john at tuxcode dot org, FIXME THAMMI ; <<</>> c3d2.de");
+MODULE_AUTHOR("john at tuxcode dot org, thammi at chaossource dot net ; <<</>> c3d2.de");
 MODULE_DESCRIPTION("Aiptek T20 USB mini projector frame buffer driver");
 
 MODULE_LICENSE("GPL"); 
 
-int init_beamer(beamer_handle beamer) {
-	int i, transferred;
 
-	for(i = 0; i < sizeof(phase0)/sizeof(phase0[0]); ++i) {
-		char* data = phase0[i];
-		size_t len = command_length(data);
-
-		libusb_bulk_transfer(beamer, (COMMAND_EP | LIBUSB_ENDPOINT_OUT), data, len, &transferred, 2000);
-	}
-
-	char nullcmd_data[] = "\x11\x00\x00\x00\x00\xa0\x00\x78\x00\x80\x02\xe0\x01\x00\x10\x00\x10\x04\x00\x96\x00";
-	size_t nullcmd_len = 21;
-
-	libusb_bulk_transfer(beamer, (RAW_EP | LIBUSB_ENDPOINT_OUT), nullcmd_data, nullcmd_len, &transferred, 2000);
-
-	char* null_space = malloc(NULL_BULK_LEN);
-	memset(null_space, 0, NULL_BULK_LEN);
-	libusb_bulk_transfer(beamer, (RAW_EP | LIBUSB_ENDPOINT_OUT), null_space, NULL_BULK_LEN, &transferred, 2000);
-	free(null_space);
-
-	for(i = 0; i < sizeof(phase1)/sizeof(phase1[0]); ++i) {
-		char* data = phase1[i];
-		size_t len = command_length(data);
-
-		libusb_bulk_transfer(beamer, (COMMAND_EP | LIBUSB_ENDPOINT_OUT), data, len, &transferred, 2000);
-	}
-
-	return 0;
-}
-
+#if 0 // Eine Halde mit Altcode:
 int send_white_image(beamer_handle beamer) {
 	char* data = malloc(FRAME_SIZE);
 	memset(data, 0xff, FRAME_SIZE);
@@ -610,3 +618,5 @@ static int simple_io(
                                 label, iterations, retval, expected);
         return retval;
 }
+
+#endif
