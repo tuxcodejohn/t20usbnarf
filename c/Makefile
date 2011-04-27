@@ -9,7 +9,7 @@ TEST_DIR=test
 BUILD_DIR=build
 
 CC=gcc
-CFLAGS=-c -Wall -g -I/usr/include/libusb-1.0/ -I/usr/include/ImageMagick
+CFLAGS=-c -std=c99 -Wall -g -I/usr/include/libusb-1.0/ -I/usr/include/ImageMagick
 LDFLAGS=-lusb-1.0 -lpthread -lMagickWand
 
 EXECUTABLE=beamer
