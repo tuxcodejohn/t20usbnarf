@@ -48,12 +48,12 @@ char *phase1[] = {
 	"\x02\x00\x01\xfc\x6d\x32",
 };
 
-inline size_t command_length(const char* cmd) {
+static inline size_t command_length(const char* cmd) {
 	switch(cmd[0]) {
 		case 0x02:
 			return 6;
 		case 0x04:
-			return 43;
+			return cmd[1] + 3;
 		case 0x05:
 			return 3;
 		case 0x0a:
