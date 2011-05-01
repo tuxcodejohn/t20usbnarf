@@ -424,6 +424,9 @@ static int t20_beamer_init(struct usb_t20aiptek  *dev )
 			dev_err(&(usbdev->dev),"Mhhh sending stuff didnt work");
 			return 1;
 		}
+		/*if ( *data = 0x04) {*/
+			/*wait_for_10_ms*/
+		/*}*/
 	}
 
 	retval = usb_bulk_msg(usbdev , 
