@@ -1,0 +1,18 @@
+AC_INIT(src/main.c)
+AM_INIT_AUTOMAKE(slidenarf,0.0.1)
+AC_GNU_SOURCE
+
+AC_PROG_INSTALL
+
+PKG_CHECK_MODULES([USBSTUFF], [libusb-1.0])
+PKG_CHECK_MODULES([MAGICKSTUFF], [MagickWand])
+
+AC_LANG_C
+AC_PROG_CC
+AM_PROG_CC_C_O
+#AC_PROG_MAKE_SET
+
+AC_OUTPUT([
+	Makefile
+	src/Makefile
+	])
