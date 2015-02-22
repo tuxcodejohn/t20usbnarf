@@ -1,5 +1,3 @@
-
-
 /*
  * USB Skeleton driver2.2 based driver for aiptek T20 mini usb projector
  *
@@ -15,6 +13,11 @@
 #include <linux/usb.h>
 #include <linux/mutex.h>
 #include <linux/mm.h>
+#include <linux/hrtimer.h>
+
+
+
+#define err(format, arg...)  printk(KERN_ERR "t20error: " format "\n" , ## arg)
 
 #include <linux/fb.h>
 
@@ -37,6 +40,7 @@ MODULE_DEVICE_TABLE(usb, t20_table);
 #define T20FRAME_SIZE		(640*480*3)
 #define T20FRAME_WIDTH		(640)
 #define T20FRAME_HEIGHT		(480)
+#define T20FRAME_PERSEC           (25)
 
 #define INPUT_EP		1
 #define RAW_EP			2
@@ -109,6 +113,11 @@ struct usb_t20aiptek {
 	struct kref		kref;
 	struct mutex		io_mutex;		/* synchronize I/O with disconnect */
 	struct completion	bulk_in_completion;	/* to wait for an ongoing read */
+	
+	ktime_t framedelay;
+	struct hrtimer frametimer;
+	bool usbdirty;
+
 	/*framebufferstuff follows :*/
 	struct fb_info		info;			/* frame buffer info */
 	struct mutex		fb_mutex;	/*let only atomic streamread */	
@@ -127,12 +136,6 @@ static struct usb_driver t20aiptek_driver;
 
 static int t20_fb_init(struct usb_t20aiptek * drvdata);
 static int t20_beamer_init(struct usb_t20aiptek * drvdata);
-
-
-
-
-
-
 
 
 static void t20_delete(struct kref *kref)
@@ -242,6 +245,10 @@ static int t20_probe(struct usb_interface *interface,
 		dev_err(&interface->dev,"fuck that doesn't work. debug it!");
 		goto error;
 	}
+	
+	/* initialize frame sending updater */
+
+
 	return 0;
 
 error:
@@ -262,7 +269,6 @@ static int t20_setcolreg(unsigned regno, unsigned red, unsigned green,
 static void t20_sendimage(void);
 
 
-
 static struct fb_ops t20aiptekfb_ops =
 {
 	.owner			= THIS_MODULE,
@@ -273,7 +279,6 @@ static struct fb_ops t20aiptekfb_ops =
 	.fb_imageblit		= t20_imageblit,
 };
 
-
 static int
 t20_blank(int blank_mode, struct fb_info *fbi)
 {
@@ -283,6 +288,7 @@ t20_blank(int blank_mode, struct fb_info *fbi)
 	case FB_BLANK_UNBLANK:
 		/* turn on panel */
 		//TODO
+		fbinfo_to_t20aiptek_dev(fbi)->usbdirty = 1;
 		break;
 
 	case FB_BLANK_NORMAL:
@@ -309,7 +315,8 @@ static void t20_fillrect(struct fb_info *info, const struct fb_fillrect *rect){
 	struct usb_t20aiptek *dev = fbinfo_to_t20aiptek_dev(info);
 	mutex_lock(&dev->fb_mutex);
 	sys_fillrect(info, rect);	
-	t20_sendimage();
+	dev->usbdirty = 1;
+	//t20_sendimage();
 	mutex_unlock(&dev->fb_mutex);
 }
 
@@ -318,7 +325,8 @@ static void t20_copyarea(struct fb_info *info, const struct fb_copyarea *area){
 
 	mutex_lock(&dev->fb_mutex);
 	sys_copyarea(info , area);
-	t20_sendimage();
+	dev->usbdirty = 1;
+	//t20_sendimage();
 	mutex_unlock(&dev->fb_mutex);
 }
 
@@ -326,10 +334,10 @@ static void t20_imageblit(struct fb_info *info, const struct fb_image *image){
 	struct usb_t20aiptek *dev = fbinfo_to_t20aiptek_dev(info);
 	mutex_lock(&dev->fb_mutex);
 	sys_imageblit(info,image);
-	t20_sendimage();
+	dev->usbdirty = 1;
+	//t20_sendimage();
 	mutex_unlock(&dev->fb_mutex);
 }
-
 
 static void t20_sendimage(void)
 {
@@ -384,6 +392,10 @@ static int  t20_fb_init(struct usb_t20aiptek * drvdata)
 	/* Put a banner in the log (for DEBUG) */
 	dev_dbg(drvdata->info.dev, "fb: phys=%llx, virt=%p, size=%x\n",
 			(unsigned long long)drvdata->fb_phys, drvdata->fb_virt,(unsigned int) fbsize);
+
+
+	/* “Configuration” */
+	drvdata->framedelay = ktime_set(0, (NSEC_PER_SEC / T20FRAME_PERSEC));
 
 	return 0;	/* success */
 
@@ -526,7 +538,7 @@ static int __init usb_t20aiptek_init(void)
 	result = usb_register(&t20aiptek_driver);
 	if (result)
 		err("usb_register failed. Error number %d", result);
-
+	
 	return result;
 }
 
@@ -535,6 +547,30 @@ static void __exit usb_t20aiptek_exit(void)
 	/* deregister this driver with the USB subsystem */
 	usb_deregister(&t20aiptek_driver);
 }
+
+
+
+
+/* hrtimer interrupt service routine: */
+	static enum hrtimer_restart 
+_t20framesend_timer_ISR(struct hrtimer *hrt)
+{
+	struct usb_t20aiptek *t20;
+	t20 = container_of(hrt,struct usb_t20aiptek,frametimer);
+	
+	if (t20->usbdirty)
+	{
+		/*register softIRQ work*/
+
+
+	}
+	hrtimer_forward_now(hrt,t20->framedelay);
+	return HRTIMER_RESTART; 
+}
+
+
+
+
 
 module_init(usb_t20aiptek_init);
 module_exit(usb_t20aiptek_exit);
